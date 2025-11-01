@@ -1,0 +1,23 @@
+name: Beads Auto-Import
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Beads CLI
+        run: curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/install.sh | bash
+      - name: Run Auto-Discovery
+        run: ./scan-new-projects.sh
+      - name: Commit Beads Updates
+        run: |
+          git config user.name "github-action"
+          git config user.email "action@users.noreply.github.com"
+          git add .beads
+          git commit -m "Auto-import new projects into Beads" || echo "No changes"
+          git push

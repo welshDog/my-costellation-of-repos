@@ -1,0 +1,80 @@
+name: Beads Auto-Import
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'projects/**'
+      - '.github/workflows/beads-auto-import.yml'
+      - 'scan-new-projects.sh'
+
+# Allow this workflow to be triggered manually
+workflow_dispatch:
+
+# Set job defaults for all jobs in this workflow
+defaults:
+  run:
+    shell: bash
+    working-directory: ./
+
+jobs:
+  import:
+    name: Discover and import projects
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required for git push
+      issues: write    # Required for bd issue commands
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for git diff
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Set up Git identity
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          
+      - name: Install Beads CLI
+        run: |
+          echo "Installing Beads CLI..."
+          curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/install.sh | bash
+          echo "$(pwd)/.local/bin" >> $GITHUB_PATH
+          
+      - name: Verify installations
+        run: |
+          echo "Beads CLI version:" 
+          bd --version || echo "Beads CLI not found"
+          
+      - name: Run project discovery
+        id: discovery
+        run: |
+          chmod +x ./scan-new-projects.sh
+          ./scan-new-projects.sh
+          
+      - name: Check for changes
+        id: changes
+        run: |
+          echo "Checking for changes..."
+          git status --porcelain
+          if [ -z "$(git status --porcelain .beads)" ]; then
+            echo "::set-output name=has_changes::false"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "No changes to commit."
+          else
+            echo "::set-output name=has_changes::true"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            echo "Changes detected, preparing to commit..."
+            git add .beads
+            git diff --cached --quiet || git commit -m "chore: update beads metadata [skip ci]"
+            git diff --cached --quiet || git commit -m "chore(beads): update project metadata [skip ci]"
+          fi
+          
+      - name: Push changes
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          echo "Pushing changes to repository..."
+          git push
